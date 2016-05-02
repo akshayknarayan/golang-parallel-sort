@@ -39,83 +39,84 @@ func main() {
 	fmt.Printf("%d numbers on %d threads\n", sz, num_threads)
 	nums := genParallel(sz, num_threads)
 	fmt.Println(sort.IntsAreSorted(nums))
-	sorted := mysort(nums, num_threads)
-	fmt.Println(sort.IntsAreSorted(sorted))
+	mysort(nums)
+	fmt.Println(sort.IntsAreSorted(nums))
 }
 
-func gen(partitionSize int, gend chan []int) {
-	res := make([]int, partitionSize)
-	for i, _ := range res {
-		res[i] = rand.Int()
+func gen(part []int, done chan int) {
+	for i, _ := range part {
+		part[i] = rand.Int()
 	}
-	gend <- res
+	done <- 0
 }
 
 func genParallel(n int, threads int) []int {
+	nums := make([]int, n)
 	partitionSize := n / threads
-	gend := make(chan []int, threads)
-	if threads == 1 {
-		go gen(n, gend)
-		return <-gend
-	}
 
-	nums := make([]int, 0, n)
-
+	waiters := make(chan int, threads)
 	for i := 0; i < threads; i++ {
-		go gen(partitionSize, gend)
+		idx := i * partitionSize
+		go gen(nums[idx:idx+partitionSize], waiters)
 	}
 
 	for i := 0; i < threads; i++ {
-		nums = append(nums, <-gend...)
+		<-waiters
 	}
 
 	return nums
 }
 
-func mysort(nums []int, threads int) []int {
-	inp := make(chan int, len(nums))
-	res := make(chan []int)
-	for _, v := range nums {
-		inp <- v
-	}
-	go sortParallel(inp, res)
-	close(inp)
-
-	return <-res
-}
-
-func sortParallel(num chan int, res chan []int) {
-	nums := make([]int, 0)
-	for n := range num {
-		nums = append(nums, n)
-	}
-
-	if len(nums) < 4096 {
-		sort.Ints(nums)
-		res <- nums
-		return
-	}
-
-	smalls := make(chan int, len(nums))
-	bigs := make(chan int, len(nums))
-
-	smallResult := make(chan []int)
-	bigResult := make(chan []int)
-
-	go sortParallel(smalls, smallResult)
-	go sortParallel(bigs, bigResult)
-
-	pivot := nums[rand.Intn(len(nums))]
-	for _, v := range nums {
-		if v <= pivot {
-			smalls <- v
+func merge(part []int) {
+	// left and right halves are sorted
+	// merge the two halves
+	merged := make([]int, 0, len(part))
+	i := 0
+	j := len(part) / 2
+	for i < len(part)/2 && j < len(part) {
+		if part[i] <= part[j] {
+			merged = append(merged, part[i])
+			i += 1
 		} else {
-			bigs <- v
+			merged = append(merged, part[j])
+			j += 1
 		}
 	}
 
-	close(smalls)
-	close(bigs)
+	for i < len(part)/2 {
+		merged = append(merged, part[i])
+		i += 1
+	}
+	for j < len(part) {
+		merged = append(merged, part[j])
+		j += 1
+	}
 
-	res <- append(<-smallResult, <-bigResult...)
+	for i, _ := range part {
+		part[i] = merged[i]
+	}
+}
+
+func sortPart(part []int, done chan int) {
+	if len(part) < 65536 {
+		sort.Ints(part)
+		done <- 0
+		return
+	}
+
+	halfway := len(part) / 2
+	leftDone := make(chan int)
+	rightDone := make(chan int)
+	go sortPart(part[:halfway], leftDone)
+	go sortPart(part[halfway:], rightDone)
+	<-leftDone
+	<-rightDone
+	merge(part)
+	done <- 0
+}
+
+func mysort(nums []int) {
+	done := make(chan int)
+	go sortPart(nums, done)
+	<-done
 }
