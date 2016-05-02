@@ -73,24 +73,18 @@ func genParallel(n int, threads int) []int {
 }
 
 func mysort(nums []int, threads int) []int {
-	semaphore := make(chan bool, threads)
-	for i := 0; i < threads; i++ {
-		semaphore <- true
-	}
-
 	inp := make(chan int, len(nums))
 	res := make(chan []int)
 	for _, v := range nums {
 		inp <- v
 	}
-	go sortParallel(inp, res, semaphore)
+	go sortParallel(inp, res)
 	close(inp)
 
 	return <-res
 }
 
-func sortParallel(num chan int, res chan []int, semaphore chan bool) {
-	<-semaphore
+func sortParallel(num chan int, res chan []int) {
 	nums := make([]int, 0)
 	for n := range num {
 		nums = append(nums, n)
@@ -98,7 +92,6 @@ func sortParallel(num chan int, res chan []int, semaphore chan bool) {
 
 	if len(nums) < 4096 {
 		sort.Ints(nums)
-		semaphore <- true
 		res <- nums
 		return
 	}
@@ -109,8 +102,8 @@ func sortParallel(num chan int, res chan []int, semaphore chan bool) {
 	smallResult := make(chan []int)
 	bigResult := make(chan []int)
 
-	go sortParallel(smalls, smallResult, semaphore)
-	go sortParallel(bigs, bigResult, semaphore)
+	go sortParallel(smalls, smallResult)
+	go sortParallel(bigs, bigResult)
 
 	pivot := nums[rand.Intn(len(nums))]
 	for _, v := range nums {
@@ -120,8 +113,6 @@ func sortParallel(num chan int, res chan []int, semaphore chan bool) {
 			bigs <- v
 		}
 	}
-
-	semaphore <- true
 
 	close(smalls)
 	close(bigs)
